@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Workbench — Task Manager</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+
+<!--
+  Inline theme bootstrap: runs before first paint so the correct
+  theme (saved preference, or OS preference) is applied immediately
+  and there is no flash of the wrong theme.
+-->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem("workbench_theme");
+      var prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+      var theme = saved || (prefersDark ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    } catch (e) {
+      document.documentElement.setAttribute("data-theme", "light");
+    }
+  })();
+</script>
+</head>
+<body>
+
+<!-- Shown only if the browser blocks/clears localStorage for this page,
+     so data loss is visible instead of silent. -->
+<div class="storage-banner" id="storageBanner" role="alert" hidden>
+  <span>
+    <strong>Tasks aren't being saved.</strong>
+    This browser is blocking local storage for this page — common in private/incognito
+    mode, or when the file is opened directly (Safari in particular blocks it for
+    <code>file://</code> pages). Try serving the folder from a local server, or open it
+    in a normal browser tab outside private mode.
+  </span>
+  <button type="button" id="storageBannerClose" aria-label="Dismiss warning">&times;</button>
+</div>
+
+<div class="app">
+
+  <!-- Signature element: a vertical ruler-rail that fills as tasks complete -->
+  <aside class="rail" aria-label="Overall progress">
+    <div class="rail-mark" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+        <path d="M3 10.5L7.5 15L17 4.5" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="rail-ticks" id="railTicks" aria-hidden="true"></div>
+    <div class="rail-stat">
+      <span class="rail-frac"><span id="railDone">0</span><span class="rail-slash">/</span><span id="railTotal">0</span></span>
+      <span class="rail-label">done</span>
+    </div>
+  </aside>
+
+  <main class="main">
+
+    <!-- ============ HEADER ============ -->
+    <header class="header">
+      <div class="header-top">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+              <rect x="1" y="1" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.6"/>
+              <path d="M6 11.5L9.5 15L16 7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <h1>Workbench</h1>
+        </div>
+
+        <div class="header-top-right">
+          <div class="header-date" id="headerDate"></div>
+          <button type="button" class="theme-toggle" id="themeToggle" aria-label="Switch to dark theme" aria-pressed="false">
+            <svg class="icon-sun" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+              <circle cx="8.5" cy="8.5" r="3.4" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M8.5 1.2V3M8.5 14V15.8M15.8 8.5H14M3 8.5H1.2M13.5 3.5L12.2 4.8M4.8 12.2L3.5 13.5M13.5 13.5L12.2 12.2M4.8 4.8L3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+            <svg class="icon-moon" width="17" height="17" viewBox="0 0 17 17" fill="none" aria-hidden="true">
+              <path d="M14.8 10.4A6.4 6.4 0 116.6 2.2a5.1 5.1 0 108.2 8.2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Explicit linear progress bar with completion percentage -->
+      <div class="progress-section">
+        <div class="progress-bar-track" id="progressBar" role="progressbar" aria-label="Overall completion" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+        <span class="progress-label" id="progressLabel">0% complete</span>
+      </div>
+
+      <!-- Primary stat cards -->
+      <div class="header-stats" id="headerStats">
+        <div class="stat">
+          <span class="stat-value" id="statTotal">0</span>
+          <span class="stat-label">Total</span>
+        </div>
+        <div class="stat">
+          <span class="stat-value" id="statActive">0</span>
+          <span class="stat-label">Active</span>
+        </div>
+        <div class="stat stat-success">
+          <span class="stat-value" id="statCompleted">0</span>
+          <span class="stat-label">Completed</span>
+        </div>
+        <div class="stat stat-warn">
+          <span class="stat-value" id="statOverdue">0</span>
+          <span class="stat-label">Overdue</span>
+        </div>
+      </div>
+
+      <!-- Secondary at-a-glance stats -->
+      <p class="header-stats-secondary">
+        <span id="statDueToday">0 due today</span>
+        <span class="dot-sep" aria-hidden="true">·</span>
+        <span id="statCompletedToday">0 completed today</span>
+      </p>
+    </header>
+
+    <!-- ============ QUICK ADD ============ -->
+    <section class="composer" aria-label="Add a task">
+      <form id="addForm" class="add-form" autocomplete="off">
+        <div class="add-input-row">
+          <input type="text" id="addInput" class="add-input"
+                 placeholder="Add a task… try “Ship report #Work !high tomorrow”"
+                 aria-label="Task title" />
+          <button type="submit" class="add-submit">Add <span class="kbd">↵</span></button>
+        </div>
+
+        <div class="add-actions">
+          <button type="button" class="chip-btn" id="dueBtn" aria-haspopup="true" aria-expanded="false">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="2.5" width="11" height="10" rx="1.5" stroke="currentColor" stroke-width="1.2"/><path d="M1.5 5.5H12.5" stroke="currentColor" stroke-width="1.2"/><path d="M4 1V3.2M10 1V3.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+            <span id="dueBtnLabel">Due date</span>
+          </button>
+          <button type="button" class="chip-btn" id="priorityBtn" aria-haspopup="true" aria-expanded="false">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3 1.5V12.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M3 2H10.5L8.7 4.2L10.5 6.5H3" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>
+            <span id="priorityBtnLabel">Priority</span>
+          </button>
+          <button type="button" class="chip-btn" id="projectBtn" aria-haspopup="true" aria-expanded="false">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><rect x="1.5" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="1.5" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="1.5" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.2"/><rect x="8" y="8" width="4.5" height="4.5" rx="1" stroke="currentColor" stroke-width="1.2"/></svg>
+            <span id="projectBtnLabel">Category</span>
+          </button>
+
+          <div class="popover" id="duePopover" hidden>
+            <input type="date" id="dueInput" aria-label="Choose due date" />
+            <div class="popover-quick">
+              <button type="button" data-quick="today">Today</button>
+              <button type="button" data-quick="tomorrow">Tomorrow</button>
+              <button type="button" data-quick="week">Next week</button>
+              <button type="button" data-quick="clear" class="quick-clear">Clear</button>
+            </div>
+          </div>
+
+          <div class="popover" id="priorityPopover" hidden>
+            <button type="button" data-priority="high" class="priority-opt high"><i></i>High</button>
+            <button type="button" data-priority="medium" class="priority-opt medium"><i></i>Medium</button>
+            <button type="button" data-priority="low" class="priority-opt low"><i></i>Low</button>
+            <button type="button" data-priority="" class="priority-opt none"><i></i>None</button>
+          </div>
+
+          <div class="popover popover-wide" id="projectPopover" hidden>
+            <div id="projectList" class="project-list"></div>
+            <div class="new-project-form" id="newProjectForm">
+              <input type="text" id="newProjectInput" placeholder="New category name" maxlength="24" />
+              <div class="color-swatches" id="colorSwatches"></div>
+              <button type="button" id="newProjectSubmit">Add category</button>
+            </div>
+          </div>
+        </div>
+      </form>
+      <p class="hint">Shortcuts — <kbd>Enter</kbd> add &nbsp;·&nbsp; <kbd>N</kbd> new task &nbsp;·&nbsp; <kbd>/</kbd> search &nbsp;·&nbsp; <kbd>Esc</kbd> cancel</p>
+    </section>
+
+    <!-- ============ TOOLBAR: filter / search / sort ============ -->
+    <section class="toolbar" aria-label="Filter and sort tasks">
+      <div class="filter-chips" id="filterChips">
+        <button class="filter-chip active" data-filter="all">All</button>
+        <button class="filter-chip" data-filter="active">Active</button>
+        <button class="filter-chip" data-filter="completed">Completed</button>
+        <button class="filter-chip" data-filter="high">High priority</button>
+      </div>
+      <div class="toolbar-right">
+        <div class="search-wrap">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true"><circle cx="6" cy="6" r="4.5" stroke="currentColor" stroke-width="1.3"/><path d="M9.5 9.5L12.5 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <input type="text" id="searchInput" placeholder="Search tasks…" aria-label="Search tasks" />
+        </div>
+        <select id="sortSelect" aria-label="Sort tasks">
+          <option value="manual">Manual order</option>
+          <option value="priority">By priority</option>
+          <option value="due">By due date</option>
+          <option value="created">Newest first</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- ============ TASK LIST ============ -->
+    <section class="list-wrap" id="listWrap"></section>
+
+  </main>
+</div>
+
+<!-- Toast notifications (stacked, auto-dismiss) -->
+<div class="toast-container" id="toastContainer" aria-live="polite" aria-atomic="false"></div>
+
+<!-- Shared modal root, used for Edit task and Delete confirmation -->
+<div class="modal-overlay" id="modalOverlay" hidden>
+  <div class="modal" id="modalRoot" role="dialog" aria-modal="true"></div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
